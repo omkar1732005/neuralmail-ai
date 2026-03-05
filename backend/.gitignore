@@ -2,6 +2,8 @@ src/main/resources/application.properties
 target/
 *.log
 
+.idea/
+.vscode/
 
 HELP.md
 target/
