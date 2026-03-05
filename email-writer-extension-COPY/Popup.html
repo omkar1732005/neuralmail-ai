@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>AI Email Assistant</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{
+  width:320px;
+  font-family:-apple-system,'Segoe UI',sans-serif;
+  background:#0d0d1c;
+  color:#fff;
+  min-height:auto;
+}
+
+/* aurora orbs */
+.orb{position:fixed;border-radius:50%;filter:blur(50px);pointer-events:none;z-index:0;}
+.o1{width:200px;height:200px;top:-60px;left:-40px;background:radial-gradient(circle,rgba(99,102,241,.2),transparent 70%);}
+.o2{width:160px;height:160px;bottom:-40px;right:-30px;background:radial-gradient(circle,rgba(168,85,247,.15),transparent 70%);}
+
+.wrap{position:relative;z-index:1;}
+
+/* HEADER */
+.hdr{
+  padding:16px 18px 13px;
+  border-bottom:1px solid rgba(255,255,255,.07);
+  display:flex;align-items:center;gap:11px;
+}
+.logo{
+  width:36px;height:36px;border-radius:10px;
+  position:relative;overflow:hidden;flex-shrink:0;
+}
+.logo-ring{
+  position:absolute;inset:0;
+  background:conic-gradient(from 0deg,#6366f1,#8b5cf6,#ec4899,#6366f1);
+  animation:spin 4s linear infinite;border-radius:10px;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+.logo-core{
+  position:absolute;inset:2px;border-radius:8px;
+  background:#10101e;display:flex;align-items:center;justify-content:center;
+}
+.logo-core svg{width:18px;height:18px;}
+.hdr-info{flex:1;}
+.hdr-name{font-size:13.5px;font-weight:800;color:#fff;letter-spacing:-.2px;}
+.hdr-sub{font-size:9px;color:rgba(255,255,255,.3);letter-spacing:1.2px;text-transform:uppercase;margin-top:1px;font-family:monospace;}
+.status-pill{
+  display:flex;align-items:center;gap:5px;
+  padding:3px 9px;border-radius:20px;
+  background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);
+  font-size:9px;font-family:monospace;color:rgba(255,255,255,.3);
+}
+.sdot{width:6px;height:6px;border-radius:50%;background:#334155;}
+.sdot.on{background:#34d399;box-shadow:0 0 6px #34d399;}
+.sdot.off{background:#f87171;box-shadow:0 0 6px #f87171;}
+
+/* TABS */
+.tabs{
+  display:flex;border-bottom:1px solid rgba(255,255,255,.06);
+  padding:0 14px;
+}
+.tab{
+  flex:1;padding:10px 6px;border:none;background:none;
+  font-size:11px;font-weight:700;color:rgba(255,255,255,.3);
+  cursor:pointer;border-bottom:2px solid transparent;
+  transition:all .18s;font-family:inherit;
+}
+.tab.active{color:#a5b4fc;border-bottom-color:#6366f1;}
+.tab:hover{color:rgba(255,255,255,.65);}
+
+/* PANELS */
+.panel{display:none;}
+.panel.active{display:block;}
+
+/* SECTION */
+.sec{padding:16px 18px;}
+.sec+.sec{border-top:1px solid rgba(255,255,255,.05);}
+.sec-title{
+  font-size:9px;font-weight:800;letter-spacing:1.4px;text-transform:uppercase;
+  color:rgba(255,255,255,.22);margin-bottom:12px;font-family:monospace;
+  display:flex;align-items:center;gap:8px;
+}
+.sec-title::after{content:'';flex:1;height:1px;background:rgba(255,255,255,.05);}
+
+/* AUTH INFO (when logged in) */
+.auth-box{
+  display:flex;align-items:center;gap:11px;
+  padding:11px 13px;border-radius:11px;
+  background:rgba(52,211,153,.07);border:1px solid rgba(52,211,153,.2);
+  margin-bottom:11px;
+}
+.auth-av{
+  width:34px;height:34px;border-radius:9px;flex-shrink:0;
+  background:linear-gradient(135deg,#6366f1,#8b5cf6);
+  display:flex;align-items:center;justify-content:center;
+  font-size:15px;font-weight:800;color:#fff;
+}
+.auth-name{font-size:12.5px;font-weight:700;color:rgba(255,255,255,.9);}
+.auth-status{font-size:9.5px;color:#34d399;font-family:monospace;margin-top:2px;}
+.auth-expiry{font-size:9px;color:rgba(255,255,255,.25);font-family:monospace;margin-top:1px;}
+
+/* FORM */
+.field{margin-bottom:10px;}
+.field label{
+  display:block;font-size:10px;font-weight:700;
+  color:rgba(255,255,255,.35);margin-bottom:5px;letter-spacing:.3px;
+}
+.field input{
+  width:100%;padding:9px 12px;
+  background:rgba(255,255,255,.06);
+  border:1px solid rgba(255,255,255,.1);
+  border-radius:9px;font-size:12px;
+  color:#fff;outline:none;font-family:inherit;
+  transition:all .18s;
+}
+.field input:focus{
+  border-color:rgba(99,102,241,.55);
+  background:rgba(99,102,241,.1);
+  box-shadow:0 0 0 3px rgba(99,102,241,.12);
+}
+.field input::placeholder{color:rgba(255,255,255,.2);}
+
+/* BUTTONS */
+.btn-primary{
+  width:100%;padding:11px;border:none;border-radius:9px;
+  font-size:12.5px;font-weight:800;cursor:pointer;
+  font-family:inherit;position:relative;overflow:hidden;
+  transition:transform .18s,box-shadow .18s;
+  margin-top:3px;
+}
+.btn-bg{
+  position:absolute;inset:0;border-radius:9px;
+  background:linear-gradient(135deg,#4f46e5,#7c3aed,#a855f7);
+  background-size:200%;animation:bg 4s ease infinite;
+}
+@keyframes bg{0%,100%{background-position:0% 50%}50%{background-position:100% 50%}}
+.btn-shine{position:absolute;inset:1px;border-radius:8px;background:rgba(255,255,255,.08);}
+.btn-txt{position:relative;z-index:1;color:#fff;}
+.btn-primary:hover{transform:translateY(-1px);box-shadow:0 8px 24px rgba(99,102,241,.4);}
+.btn-primary:active{transform:scale(.98);}
+.btn-primary:disabled{opacity:.5;cursor:not-allowed;transform:none;}
+
+.btn-ghost{
+  width:100%;padding:9px;border:1px solid rgba(255,255,255,.1);
+  border-radius:9px;font-size:11.5px;font-weight:700;cursor:pointer;
+  background:rgba(255,255,255,.04);color:rgba(255,255,255,.5);
+  transition:all .18s;font-family:inherit;margin-top:6px;
+}
+.btn-ghost:hover{background:rgba(255,255,255,.09);color:#fff;border-color:rgba(255,255,255,.2);}
+
+/* MESSAGES */
+.msg{
+  font-size:11px;font-weight:600;padding:8px 11px;
+  border-radius:8px;margin-top:9px;display:none;
+  font-family:monospace;
+}
+.msg.ok{background:rgba(52,211,153,.1);border:1px solid rgba(52,211,153,.3);color:#34d399;}
+.msg.err{background:rgba(248,113,113,.1);border:1px solid rgba(248,113,113,.3);color:#f87171;}
+.msg.info{background:rgba(99,102,241,.1);border:1px solid rgba(99,102,241,.3);color:#a5b4fc;}
+
+/* FEATURES */
+.feat{
+  display:flex;align-items:flex-start;gap:10px;
+  padding:8px 0;border-bottom:1px solid rgba(255,255,255,.04);
+}
+.feat:last-child{border-bottom:none;}
+.feat-ic{
+  width:22px;height:22px;border-radius:6px;flex-shrink:0;margin-top:1px;
+  background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);
+  display:flex;align-items:center;justify-content:center;
+}
+.feat-ic svg{width:11px;height:11px;}
+.feat-name{font-size:11.5px;font-weight:700;color:rgba(255,255,255,.82);}
+.feat-desc{font-size:9.5px;color:rgba(255,255,255,.28);margin-top:1px;font-family:monospace;}
+
+/* FOOTER */
+.foot{
+  padding:9px 18px 12px;
+  border-top:1px solid rgba(255,255,255,.05);
+  display:flex;align-items:center;justify-content:space-between;
+}
+.foot-l{font-size:9px;color:rgba(255,255,255,.15);font-family:monospace;}
+.foot-v{
+  font-size:9px;color:rgba(255,255,255,.18);font-family:monospace;
+  background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);
+  border-radius:4px;padding:2px 7px;
+}
+</style>
+</head>
+<body>
+<div class="orb o1"></div>
+<div class="orb o2"></div>
+<div class="wrap">
+
+  <!-- HEADER -->
+  <div class="hdr">
+    <div class="logo">
+      <div class="logo-ring"></div>
+      <div class="logo-core">
+        <svg viewBox="0 0 20 20" fill="none">
+          <path d="M3 5h14M3 10h9M3 15h6" stroke="white" stroke-width="2.2" stroke-linecap="round"/>
+          <circle cx="15" cy="14" r="4" fill="rgba(255,255,255,.12)" stroke="white" stroke-width="1.5"/>
+          <path d="M15 12v2.2l1.5 1.5" stroke="white" stroke-width="1.4" stroke-linecap="round"/>
+        </svg>
+      </div>
+    </div>
+    <div class="hdr-info">
+      <div class="hdr-name">AI Email Assistant</div>
+      <div class="hdr-sub">Powered by Groq</div>
+    </div>
+    <div class="status-pill">
+      <div class="sdot" id="sdot"></div>
+      <span id="stxt">checking</span>
+    </div>
+  </div>
+
+  <!-- TABS -->
+  <div class="tabs">
+    <button class="tab active" data-tab="account">&#128100; Account</button>
+    <button class="tab" data-tab="settings">&#9881; Settings</button>
+    <button class="tab" data-tab="features">&#10024; Features</button>
+  </div>
+
+  <!-- ═══ TAB: ACCOUNT ═══ -->
+  <div class="panel active" id="tab-account">
+    <div class="sec">
+
+      <!-- LOGGED IN STATE -->
+      <div id="loggedInView" style="display:none;">
+        <div class="sec-title">Session</div>
+        <div class="auth-box">
+          <div class="auth-av" id="authAv">?</div>
+          <div>
+            <div class="auth-name" id="authName">—</div>
+            <div class="auth-status">&#10003; Authenticated</div>
+            <div class="auth-expiry" id="authExpiry"></div>
+          </div>
+        </div>
+        <button class="btn-ghost" id="logoutBtn">Log out</button>
+      </div>
+
+      <!-- LOGIN FORM -->
+      <div id="loginView">
+        <div class="sec-title">Login</div>
+        <div class="field">
+          <label>Username</label>
+          <input type="text" id="loginUser" placeholder="admin" autocomplete="username"/>
+        </div>
+        <div class="field">
+          <label>Password</label>
+          <div style="position:relative;">
+            <input type="password" id="loginPass" placeholder="enter your password" autocomplete="current-password" style="padding-right:40px;width:100%;box-sizing:border-box;"/>
+            <button type="button" id="togglePass" onclick="togglePassword()" style="
+              position:absolute;right:10px;top:50%;transform:translateY(-50%);
+              background:none;border:none;cursor:pointer;color:rgba(255,255,255,.3);
+              font-size:14px;padding:0;transition:color .15s;line-height:1;" title="Show/hide password">
+              👁
+            </button>
+          </div>
+        </div>
+        <button class="btn-primary" id="loginBtn">
+          <div class="btn-bg"></div>
+          <div class="btn-shine"></div>
+          <span class="btn-txt">Log In</span>
+        </button>
+        <div class="msg" id="loginMsg"></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ═══ TAB: SETTINGS ═══ -->
+  <div class="panel" id="tab-settings">
+    <div class="sec">
+      <div class="sec-title">Backend URL</div>
+      <div class="field">
+        <label>Spring Boot URL</label>
+        <input type="url" id="backendUrl" placeholder="http://localhost:8080"/>
+      </div>
+      <button class="btn-primary" id="saveBtn">
+        <div class="btn-bg"></div>
+        <div class="btn-shine"></div>
+        <span class="btn-txt">Save &amp; Connect</span>
+      </button>
+      <div class="msg" id="saveMsg"></div>
+    </div>
+  </div>
+
+  <!-- ═══ TAB: FEATURES ═══ -->
+  <div class="panel" id="tab-features">
+    <div class="sec">
+      <div class="sec-title">Capabilities</div>
+      <div class="feat">
+        <div class="feat-ic"><svg viewBox="0 0 12 12" fill="none"><path d="M1.5 6L4 3.5M1.5 6l2.5 2.5M1.5 6H9a2.5 2.5 0 010 5" stroke="rgba(200,200,255,.85)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+        <div><div class="feat-name">Context-Aware Reply</div><div class="feat-desc">Full thread · intent-matched</div></div>
+      </div>
+      <div class="feat">
+        <div class="feat-ic"><svg viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="4.5" stroke="rgba(147,197,253,.85)" stroke-width="1.4"/><path d="M6 3.5V6l1.5 1.5" stroke="rgba(147,197,253,.85)" stroke-width="1.4" stroke-linecap="round"/></svg></div>
+        <div><div class="feat-name">Smart Follow-Up</div><div class="feat-desc">Auto-generates follow-up drafts</div></div>
+      </div>
+      <div class="feat">
+        <div class="feat-ic"><svg viewBox="0 0 12 12" fill="none"><path d="M10 2.5A5 5 0 102 9.5M10 2.5V5.5H7" stroke="rgba(249,168,212,.85)" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+        <div><div class="feat-name">3 Reply Variations</div><div class="feat-desc">Formal · Friendly · Concise</div></div>
+      </div>
+      <div class="feat">
+        <div class="feat-ic"><svg viewBox="0 0 12 12" fill="none"><rect x="1.5" y="1.5" width="9" height="9" rx="2" stroke="rgba(253,186,116,.85)" stroke-width="1.4"/><path d="M3.5 4.5h5M3.5 7.5h3" stroke="rgba(253,186,116,.85)" stroke-width="1.4" stroke-linecap="round"/></svg></div>
+        <div><div class="feat-name">Summarization Engine</div><div class="feat-desc">Key points instantly</div></div>
+      </div>
+      <div class="feat">
+        <div class="feat-ic"><svg viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="4.5" stroke="rgba(167,243,208,.85)" stroke-width="1.4"/><path d="M4 6l1.5 1.5L8.5 4" stroke="rgba(167,243,208,.85)" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+        <div><div class="feat-name">Human Score Analysis</div><div class="feat-desc">Rates authenticity of AI output</div></div>
+      </div>
+      <div class="feat">
+        <div class="feat-ic"><svg viewBox="0 0 12 12" fill="none"><path d="M6 1.5v9M3 8l3 3 3-3" stroke="rgba(94,234,212,.85)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+        <div><div class="feat-name">JWT Secured</div><div class="feat-desc">Token-authenticated API calls</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- FOOTER -->
+  <div class="foot">
+    <span class="foot-l">Spring Boot · Groq · JWT</span>
+    <span class="foot-v">v8.1</span>
+  </div>
+
+</div>
+<script src="popup.js"></script>
+</body>
+</html>
