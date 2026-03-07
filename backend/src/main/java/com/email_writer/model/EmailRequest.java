@@ -12,4 +12,5 @@ public class EmailRequest {
     private String tone;
     private String replyLength;
     private String customPrompt;
+    // No groqApiKey field needed — backend uses its own key from env vars
 }

@@ -1,6 +1,8 @@
 package com.email_writer.service;
 
 import com.email_writer.model.EmailRequest;
+import com.email_writer.model.User;
+import com.email_writer.repository.UserRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -10,21 +12,55 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientRequestException;
 import reactor.util.retry.Retry;
+
 import java.net.SocketException;
 import java.time.Duration;
+import java.time.LocalDateTime;
 
 @Service
 @RequiredArgsConstructor
 public class EmailGeneratorService {
 
     private final WebClient.Builder webClientBuilder;
+    private final UserRepository userRepository;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Value("${groq.api.url}")   private String baseUrl;
-    @Value("${groq.api.key}")   private String apiKey;
+    @Value("${groq.api.key}")   private String apiKey;   // YOUR key from env vars
     @Value("${groq.model}")     private String model;
+    @Value("${app.rate.limit.requests-per-day:50}") private int dailyLimit;
 
-    // ── CORE GROQ CALLER (with retry on connection reset) ────
+    // ── RATE LIMIT CHECK ──────────────────────────────────────
+    // Checks how many requests this user has made today
+    // Resets counter automatically at midnight
+    public void checkRateLimit(String username) {
+        User user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+        LocalDateTime now = LocalDateTime.now();
+        boolean newDay = user.getLastRequestDate() == null
+                || user.getLastRequestDate().toLocalDate().isBefore(now.toLocalDate());
+
+        if (newDay) {
+            // New day — reset counter
+            user.setRequestsToday(0);
+            user.setLastRequestDate(now);
+        }
+
+        if (user.getRequestsToday() >= dailyLimit) {
+            throw new RuntimeException(
+                    "Daily limit reached (" + dailyLimit + " requests/day). " +
+                            "Your limit resets at midnight. Come back tomorrow!"
+            );
+        }
+
+        // Increment counter and save
+        user.setRequestsToday(user.getRequestsToday() + 1);
+        user.setLastRequestDate(now);
+        userRepository.save(user);
+    }
+
+    // ── CORE GROQ CALLER ──────────────────────────────────────
     private String callGroq(String systemPrompt, String userPrompt) {
         try {
             ObjectNode body = objectMapper.createObjectNode();
@@ -33,17 +69,12 @@ public class EmailGeneratorService {
             body.put("max_tokens", 1024);
 
             ArrayNode messages = objectMapper.createArrayNode();
-
             ObjectNode sys = objectMapper.createObjectNode();
-            sys.put("role", "system");
-            sys.put("content", systemPrompt);
+            sys.put("role", "system"); sys.put("content", systemPrompt);
             messages.add(sys);
-
             ObjectNode usr = objectMapper.createObjectNode();
-            usr.put("role", "user");
-            usr.put("content", userPrompt);
+            usr.put("role", "user"); usr.put("content", userPrompt);
             messages.add(usr);
-
             body.set("messages", messages);
 
             String response = webClientBuilder.build()
@@ -55,147 +86,97 @@ public class EmailGeneratorService {
                     .bodyValue(body.toString())
                     .retrieve()
                     .bodyToMono(String.class)
-                    // Retry up to 3 times on connection reset (1s delay between retries)
                     .retryWhen(Retry.backoff(3, Duration.ofSeconds(1))
                             .filter(ex -> ex instanceof WebClientRequestException
                                     || (ex.getCause() instanceof SocketException
                                     && ex.getCause().getMessage() != null
                                     && ex.getCause().getMessage().contains("reset")))
                             .doBeforeRetry(sig ->
-                                    System.out.println("[NeuralMail] Retrying Groq call, attempt "
-                                            + (sig.totalRetries() + 1) + " — " + sig.failure().getMessage())
-                            )
+                                    System.out.println("[NeuralMail] Retrying Groq, attempt "
+                                            + (sig.totalRetries() + 1)))
                     )
                     .block();
 
             if (response == null) throw new RuntimeException("Empty response from Groq");
-            return objectMapper.readTree(response)
-                    .path("choices").get(0)
-                    .path("message").path("content")
-                    .asText().trim();
-        } catch (Exception e) {
-            String msg = e.getMessage();
-            if (msg != null && (msg.contains("Connection reset") || msg.contains("connection"))) {
-                throw new RuntimeException("Connection to AI service failed. Please try again.", e);
+
+            var tree = objectMapper.readTree(response);
+            if (tree.has("error")) {
+                throw new RuntimeException("Groq error: " + tree.path("error").path("message").asText());
             }
-            throw new RuntimeException("Groq API error: " + msg, e);
+            return tree.path("choices").get(0).path("message").path("content").asText().trim();
+
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new RuntimeException("Groq API error: " + e.getMessage(), e);
         }
     }
 
     // ── GENERATE REPLY ────────────────────────────────────────
     public String generateEmailReply(EmailRequest req) {
-        String tone   = req.getTone() == null ? "professional" : req.getTone();
-        String length = req.getReplyLength() == null ? "medium" : req.getReplyLength();
+        String tone   = req.getTone()        == null ? "professional" : req.getTone();
+        String length = req.getReplyLength() == null ? "medium"       : req.getReplyLength();
 
         String toneDesc = switch (tone) {
-            case "formal"       -> "formal and highly professional";
-            case "friendly"     -> "warm, friendly and personable";
-            case "executive"    -> "executive-level, direct and authoritative";
-            case "apology"      -> "sincere and apologetic";
-            case "negotiation"  -> "diplomatic and open to negotiation";
-            case "casual"       -> "casual and conversational";
-            case "assertive"    -> "confident and assertive";
-            default             -> "professional and clear";
+            case "formal"      -> "formal and highly professional";
+            case "friendly"    -> "warm, friendly and personable";
+            case "executive"   -> "executive-level, direct and authoritative";
+            case "apology"     -> "sincere and apologetic";
+            case "negotiation" -> "diplomatic and open to negotiation";
+            case "casual"      -> "casual and conversational";
+            case "assertive"   -> "confident and assertive";
+            default            -> "professional and clear";
         };
-
         String lengthDesc = switch (length) {
-            case "short"  -> "2-3 sentences MAXIMUM — extremely brief";
-            case "long"   -> "detailed and comprehensive, 3-4 full paragraphs";
-            default       -> "2-3 short paragraphs, moderate length";
+            case "short" -> "2-3 sentences MAXIMUM — extremely brief";
+            case "long"  -> "detailed and comprehensive, 3-4 full paragraphs";
+            default      -> "2-3 short paragraphs, moderate length";
         };
-
-        // Custom instruction block — placed FIRST with HIGHEST priority
         String customBlock = "";
         if (req.getCustomPrompt() != null && !req.getCustomPrompt().isBlank()) {
-            customBlock = """
-                
-                ⚠️ OVERRIDE INSTRUCTION — HIGHEST PRIORITY — MUST FOLLOW EXACTLY:
-                %s
-                This instruction overrides everything else. Follow it precisely before anything.
-                """.formatted(req.getCustomPrompt().trim());
+            customBlock = "\n⚠️ OVERRIDE INSTRUCTION — MUST FOLLOW EXACTLY:\n"
+                    + req.getCustomPrompt().trim() + "\n";
         }
-
         String system = """
-            You are an expert email ghostwriter. You write replies that sound completely human — natural, warm, and genuine.
-            
-            ABSOLUTE RULES — NEVER break these:
-            1. Output ONLY the email body — no subject line, no "Here is your reply:", no explanation
-            2. NEVER use filler: "Certainly!", "Of course!", "I hope this email finds you well", "Great question!"
-            3. NEVER use placeholders like [Your Name] or [Date]
-            4. Sound like a real person wrote this, not an AI
-            5. Match the emotional context of the original email
-            6. If told to reply in 2-3 words, reply in EXACTLY 2-3 words — nothing more
-            7. If given a custom instruction, follow it with ABSOLUTE precision
+            You are an expert email ghostwriter. Write replies that sound completely human.
+            RULES: Output ONLY the email body. No subject line. No "Here is your reply:".
+            No filler phrases. No placeholders. Sound like a real person, not an AI.
             """;
-
         String user = """
             Write a reply to the email below.
             %s
-            Tone: %s
-            Length: %s
+            Tone: %s | Length: %s
             
             Original email:
             %s
             """.formatted(customBlock, toneDesc, lengthDesc, req.getEmailContent());
-
         return callGroq(system, user);
     }
 
     // ── REWRITE ───────────────────────────────────────────────
     public String rewriteEmail(EmailRequest req) {
         String tone = req.getTone() != null ? req.getTone() : "professional";
-
-        String system = """
-            You are an expert email editor. Rewrite emails to be more polished and professional.
-            Output ONLY the rewritten email body — no explanations, no preamble.
-            """;
-
-        String user = """
-            Rewrite this email draft to be more %s and polished.
-            Keep the same meaning. Improve clarity and flow. Remove redundancy.
-            
-            Draft:
-            %s
-            """.formatted(tone, req.getEmailContent());
-
-        return callGroq(system, user);
+        return callGroq(
+                "You are an expert email editor. Output ONLY the rewritten email body.",
+                "Rewrite this email to be more " + tone + " and polished. Keep same meaning.\n\n"
+                        + req.getEmailContent()
+        );
     }
 
     // ── IMPROVE ───────────────────────────────────────────────
     public String improveEmail(EmailRequest req) {
-        String system = """
-            You are a grammar and style expert. Fix emails without changing their meaning or tone.
-            Output ONLY the improved email body — no explanations.
-            """;
-
-        String user = """
-            Fix all grammar, spelling and punctuation errors. Improve sentence flow.
-            Preserve the original tone and meaning exactly.
-            
-            Email:
-            %s
-            """.formatted(req.getEmailContent());
-
-        return callGroq(system, user);
+        return callGroq(
+                "Fix grammar, spelling and punctuation. Output ONLY the improved email body.",
+                "Fix this email:\n\n" + req.getEmailContent()
+        );
     }
 
     // ── SUMMARIZE ─────────────────────────────────────────────
     public String summarizeEmail(EmailRequest req) {
-        String system = """
-            You are an email analyst. Summarize emails into clear, concise bullet points.
-            Output ONLY bullet points starting with •. No preamble, no explanation.
-            """;
-
-        String user = """
-            Summarize this email in 3-5 bullet points.
-            Focus on: key info, action items, deadlines, decisions.
-            Each bullet max 15 words.
-            
-            Email:
-            %s
-            """.formatted(req.getEmailContent());
-
-        return callGroq(system, user);
+        return callGroq(
+                "Summarize emails into bullet points starting with •. Output ONLY bullet points.",
+                "Summarize in 3-5 bullets (max 15 words each):\n\n" + req.getEmailContent()
+        );
     }
 
     // ── FOLLOW-UP ─────────────────────────────────────────────
@@ -203,44 +184,26 @@ public class EmailGeneratorService {
         String tone   = req.getTone() != null ? req.getTone() : "professional";
         String custom = (req.getCustomPrompt() != null && !req.getCustomPrompt().isBlank())
                 ? "\n⚠️ MUST FOLLOW: " + req.getCustomPrompt() : "";
-
-        String system = """
-            You are an expert at writing polite, effective follow-up emails.
-            Output ONLY the follow-up email body — no subject, no explanation.
-            """;
-
-        String user = """
-            Write a follow-up email referencing the thread below.
-            Tone: %s. Max 3-4 sentences. Sound human, not pushy.%s
-            
-            Original email:
-            %s
-            """.formatted(tone, custom, req.getEmailContent());
-
-        return callGroq(system, user);
+        return callGroq(
+                "Write polite follow-up emails. Output ONLY the email body.",
+                "Write a follow-up for this thread. Tone: " + tone + ". Max 3-4 sentences." + custom
+                        + "\n\nOriginal:\n" + req.getEmailContent()
+        );
     }
 
     // ── HUMAN SCORE ───────────────────────────────────────────
     public String generateHumanScore(String emailContent) {
-        String system = """
-            You are an AI-detection expert. Rate how human-written text sounds.
-            Output ONLY a single integer 0-100. No explanation, no text.
-            100 = completely human. 0 = obviously AI-generated.
-            """;
-
-        String user = """
-            Rate this email's human-score 0-100:
-            
-            %s
-            """.formatted(emailContent);
-
-        return callGroq(system, user).replaceAll("[^0-9]", "");
+        return callGroq(
+                "Rate how human-written text sounds. Output ONLY a single integer 0-100.",
+                "Rate this email's human score 0-100:\n\n" + emailContent
+        ).replaceAll("[^0-9]", "");
     }
 
     // ── SEMANTIC FINGERPRINT ──────────────────────────────────
     public String generateSemanticFingerprint(String emailContent) {
-        String system = "Extract keywords. Output ONLY comma-separated keywords, nothing else.";
-        String user   = "Extract 5-8 key topic keywords from:\n\n" + emailContent;
-        return callGroq(system, user);
+        return callGroq(
+                "Extract keywords. Output ONLY comma-separated keywords.",
+                "Extract 5-8 keywords from:\n\n" + emailContent
+        );
     }
 }

@@ -14,9 +14,9 @@
 
 	<groupId>com.email_writer</groupId>
 	<artifactId>email-writer-sb</artifactId>
-	<version>8.0.0</version>
+	<version>9.0.0</version>
 	<name>NeuralMail Backend</name>
-	<description>AI Email Assistant — Spring Boot + Groq + JWT Security</description>
+	<description>AI Email Assistant — Spring Boot + Groq + JWT + PostgreSQL</description>
 
 	<properties>
 		<java.version>17</java.version>
@@ -25,13 +25,13 @@
 
 	<dependencies>
 
-		<!-- Spring Web (REST API) -->
+		<!-- Spring Web -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-web</artifactId>
 		</dependency>
 
-		<!-- WebFlux (WebClient for calling Groq API) -->
+		<!-- WebFlux — WebClient for Groq API calls -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-webflux</artifactId>
@@ -43,7 +43,26 @@
 			<artifactId>spring-boot-starter-security</artifactId>
 		</dependency>
 
-		<!-- JJWT — JWT generation and validation -->
+		<!-- Spring Data JPA — database access -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-data-jpa</artifactId>
+		</dependency>
+
+		<!-- PostgreSQL driver -->
+		<dependency>
+			<groupId>org.postgresql</groupId>
+			<artifactId>postgresql</artifactId>
+			<scope>runtime</scope>
+		</dependency>
+
+		<!-- Spring Mail — for forgot password emails -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-mail</artifactId>
+		</dependency>
+
+		<!-- JJWT -->
 		<dependency>
 			<groupId>io.jsonwebtoken</groupId>
 			<artifactId>jjwt-api</artifactId>
@@ -75,7 +94,7 @@
 			<optional>true</optional>
 		</dependency>
 
-		<!-- Jackson JSON -->
+		<!-- Jackson -->
 		<dependency>
 			<groupId>com.fasterxml.jackson.core</groupId>
 			<artifactId>jackson-databind</artifactId>
