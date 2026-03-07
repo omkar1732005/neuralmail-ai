@@ -8,7 +8,7 @@ const DAILY_LIMIT = 50;
 function getUrl() {
     return new Promise(res =>
         chrome.storage.sync.get(['backendUrl'], r =>
-            res((r.backendUrl || 'http://localhost:8080').replace(/\/$/, ''))
+            res((r.backendUrl || 'https://neuralmail-ai-production.up.railway.app').replace(/\/$/, ''))
         )
     );
 }
